@@ -1,0 +1,399 @@
+package com.example.expensemanager
+
+import android.widget.Toast
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.expensemanager.ui.theme.green
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.draw.shadow
+import com.github.mikephil.charting.data.PieEntry
+
+@Preview(showBackground = true)
+@Composable
+fun HomeScreenContent() {
+    val context = LocalContext.current
+    var totalBalance by remember { mutableStateOf(0.0) }
+    var totalIncome by remember { mutableStateOf(0.0) }
+    var totalExpense by remember { mutableStateOf(0.0) }
+    var transactions by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
+    var showForm by remember { mutableStateOf(false) }
+    var showAllTransactions by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val firestore = FirebaseFirestore.getInstance()
+        val userId = FirebaseAuth.getInstance().currentUser!!.uid
+
+        // Fetch totals
+        firestore.collection("users")
+            .document(userId)
+            .collection("totals")
+            .document("totalsDoc")
+            .get()
+            .addOnSuccessListener { document ->
+                if (document != null) {
+                    totalBalance = document.getDouble("totalBalance") ?: 0.0
+                    totalIncome = document.getDouble("totalIncome") ?: 0.0
+                    totalExpense = document.getDouble("totalExpense") ?: 0.0
+                }
+            }
+            .addOnFailureListener { e ->
+                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+
+        // Fetch latest transactions
+        firestore.collection("users")
+            .document(userId)
+            .collection("transactions")
+            .orderBy("date", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .limit(5)
+            .get()
+            .addOnSuccessListener { result ->
+                transactions = result.map { it.data }
+            }
+            .addOnFailureListener { e ->
+                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+    }
+
+    HomeScreen(
+        totalBalance = totalBalance,
+        totalIncome = totalIncome,
+        totalExpense = totalExpense,
+        transactions = transactions,
+        showForm = showForm,
+        showAllTransactions = showAllTransactions,
+        onShowFormChange = { showForm = it },
+        onShowAllTransactionsChange = { showAllTransactions = it }
+    )
+}
+
+@Composable
+fun HomeScreen(
+    totalBalance: Double,
+    totalIncome: Double,
+    totalExpense: Double,
+    transactions: List<Map<String, Any>>,
+    showForm: Boolean,
+    showAllTransactions: Boolean,
+    onShowFormChange: (Boolean) -> Unit,
+    onShowAllTransactionsChange: (Boolean) -> Unit
+) {
+    val context = LocalContext.current
+    var allTransactions by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
+    var pieChartData by remember { mutableStateOf<List<PieEntry>>(emptyList()) }
+    pieChartData = createPieEntries(transactions)
+
+    LaunchedEffect(showAllTransactions) {
+        if (showAllTransactions) {
+            val firestore = FirebaseFirestore.getInstance()
+            val userId = FirebaseAuth.getInstance().currentUser!!.uid
+            firestore.collection("users")
+                .document(userId)
+                .collection("transactions")
+                .orderBy("date", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .get()
+                .addOnSuccessListener { result ->
+                    allTransactions = result.map { it.data }
+                }
+                .addOnFailureListener { e ->
+                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(16.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+
+            // FINO text outside the card
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "FINO",
+                    style = MaterialTheme.typography.headlineLarge.copy(
+                        color = green,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 45.sp
+                    )
+                )
+                Image(
+                    painter = painterResource(id = R.drawable.notification),
+                    contentDescription = "Notifications",
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clickable {
+                            // Handle notifications click
+                        }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Header card with balance
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 16.dp)
+                    .shadow(8.dp, shape = MaterialTheme.shapes.large),
+                colors = CardDefaults.cardColors(
+                    containerColor = green // Set background color for Material 3
+                ),
+                shape = MaterialTheme.shapes.large
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth()
+                ) {
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "Total Balance",
+                        style = MaterialTheme.typography.titleLarge.copy(color = MaterialTheme.colorScheme.onPrimary)
+                    )
+                    Text(
+                        text = "₹${totalBalance.format()}",
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        InfoCard("Income", totalIncome.format(), R.drawable.income, MaterialTheme.colorScheme.onPrimary)
+                        InfoCard("Expense", totalExpense.format(), R.drawable.expense, Color.Red)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Pie Chart
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+                    .shadow(8.dp, shape = MaterialTheme.shapes.large),
+                shape = MaterialTheme.shapes.large
+            ) {
+                DynamicPieChart(
+                    pieEntries = pieChartData,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .size(250.dp)
+                        .align(Alignment.CenterHorizontally)
+                )
+            }
+
+            // Recent Transactions
+            Text(
+                text = "Recent Transactions",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(start = 16.dp)
+            )
+
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(vertical = 8.dp)
+            ) {
+                items(if (showAllTransactions) allTransactions else transactions) { transaction ->
+                    TransactionItem(transaction)
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+            }
+        }
+
+        FloatingActionButton(
+            onClick = { onShowFormChange(true) },
+            containerColor = green,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+        ) {
+            Text(text = "+", style = MaterialTheme.typography.headlineMedium.copy(color = MaterialTheme.colorScheme.onPrimary))
+        }
+
+        if (showForm) {
+            ExpenseIncomeForm(
+                onDismiss = { onShowFormChange(false) },
+                onSave = { type, name, amount, description, date, category, receiptUri ->
+                    val expenseIncomeData = hashMapOf(
+                        "type" to type,
+                        "name" to name,
+                        "amount" to amount,
+                        "description" to description,
+                        "date" to date,
+                        "category" to category,
+                        "receiptUri" to receiptUri?.toString()
+                    )
+                    val firestore = FirebaseFirestore.getInstance()
+                    val userId = FirebaseAuth.getInstance().currentUser!!.uid
+                    firestore.collection("users")
+                        .document(userId)
+                        .collection("transactions")
+                        .add(expenseIncomeData)
+                        .addOnSuccessListener {
+                            firestore.collection("users")
+                                .document(userId)
+                                .collection("totals")
+                                .document("totalsDoc")
+                                .get()
+                                .addOnSuccessListener { document ->
+                                    if (document != null) {
+                                        var totalBalance = document.getDouble("totalBalance") ?: 0.0
+                                        var totalIncome = document.getDouble("totalIncome") ?: 0.0
+                                        var totalExpense = document.getDouble("totalExpense") ?: 0.0
+                                        if (type == "Income") {
+                                            totalIncome += amount.toDouble()
+                                            totalBalance += amount.toDouble()
+                                        } else if (type == "Expense") {
+                                            totalExpense += amount.toDouble()
+                                            totalBalance -= amount.toDouble()
+                                        }
+                                        val updatedTotals = hashMapOf(
+                                            "totalBalance" to totalBalance,
+                                            "totalIncome" to totalIncome,
+                                            "totalExpense" to totalExpense
+                                        )
+
+                                        firestore.collection("users")
+                                            .document(userId)
+                                            .collection("totals")
+                                            .document("totalsDoc")
+                                            .set(updatedTotals)
+                                            .addOnSuccessListener {
+                                                Toast.makeText(context, "Saved successfully", Toast.LENGTH_LONG).show()
+                                            }
+                                            .addOnFailureListener { e ->
+                                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                            }
+                                    }
+                                }
+                        }
+                        .addOnFailureListener { e ->
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                        }
+
+                    onShowFormChange(false)
+                }
+            )
+        }
+    }
+}
+
+
+fun Double.format(): String {
+    return String.format("%.2f", this)
+}
+@Composable
+fun TransactionItem(transaction: Map<String, Any>) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        val category = transaction["category"] as? String ?: "Other"
+        val name = transaction["name"] as? String ?: "Unknown"
+        val date = transaction["date"] as? String ?: "Unknown"
+        val amount = (transaction["amount"] as? Number)?.toDouble() ?: 0.0
+        val type = transaction["type"] as? String ?: "Expense"
+        val categoryIcons = mapOf(
+            "Housing" to R.drawable.house,
+            "Food" to R.drawable.food,
+            "Entertainment" to R.drawable.entertainment,
+            "Transportation" to R.drawable.vehicles,
+            "Investment" to R.drawable.investment,
+            "Healthcare" to R.drawable.healthcare,
+            "Bills" to R.drawable.bill,
+            "Subscription" to R.drawable.subscription,
+            "Others" to R.drawable.others,
+            "Other" to R.drawable.others
+        )
+        val iconResId = categoryIcons[category] ?: categoryIcons["Other"]!!
+
+        val amountText = if (type == "Income") "+₹${amount.format()}" else "-₹${amount.format()}"
+        val amountColor = if (type == "Income") green else Color.Red
+        Image(
+            painter = painterResource(id = iconResId),
+            contentDescription = null,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = name, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            Text(text = date, fontSize = 14.sp, color = Color.Gray)
+        }
+        Text(
+            text = amountText,
+            fontSize = 16.sp,
+            color = amountColor,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+// Function to convert transactions to PieEntry
+private fun createPieEntries(transactions: List<Map<String, Any>>): List<PieEntry> {
+    val categoryMap = mutableMapOf<String, Double>()
+    for (transaction in transactions) {
+
+        if (transaction["type"] == "Expense") {
+            val category = transaction["category"] as? String ?: "Other"
+            val amount = (transaction["amount"] as? Number)?.toDouble() ?: 0.0
+
+            categoryMap[category] = categoryMap.getOrDefault(category, 0.0) + amount
+        }
+    }
+    return categoryMap.map { PieEntry(it.value.toFloat(), it.key) }
+}
+@Composable
+fun InfoCard(title: String, amount: String, icon: Int, amountColor: Color) {
+    Column(
+        modifier = Modifier.padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Image(
+                painter = painterResource(id = icon),
+                contentDescription = "$title Icon",
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onPrimary)  // Replaced body1 with bodyMedium
+            )
+        }
+        Text(
+            text = "₹$amount",
+            style = MaterialTheme.typography.titleLarge.copy(color = amountColor, fontWeight = FontWeight.Bold)  // Replaced h6 with titleLarge
+        )
+    }
+}

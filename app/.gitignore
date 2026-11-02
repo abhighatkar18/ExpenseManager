@@ -1,0 +1,22 @@
+
+# API key - do not upload to GitHub
+/app/src/main/java/com/example/expensemanager/Constants.kt
+# Build folders
+**/build/
+
+
+# Local configuration
+local.properties
+
+# Firebase configuration
+**/google-services.json
+
+# Android Studio generated files
+.gradle/
+.idea/
+
+# Private credentials
+*.jks
+*.keystore
+.env
+.env.*

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@+id/home"
+        android:icon="@drawable/ic_home_black_24dp"
+        android:title="@string/title_home" />
+    <item
+        android:id="@+id/budget"
+        android:icon="@drawable/budget"
+        android:title="@string/title_budget" />
+    <item
+        android:id="@+id/chatbot"
+        android:icon="@drawable/ai"
+        android:title="@string/title_chatbot" />
+
+    <item
+        android:id="@+id/profile"
+        android:icon="@drawable/profile"
+        android:title="@string/title_profile" />
+
+
+</menu>

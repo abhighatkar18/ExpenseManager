@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">ExMan</string>
+    <string name="title_activity_home_page">homePage</string>
+    <string name="title_home">Home</string>
+    <string name="title_chatbot">Chatbot</string>
+    <string name="title_profile">Profile</string>
+    <string name="title_scanner">Scanner</string>
+    <string name="title_activity_home">HomeActivity</string>
+    <string name="title_budget">Budget</string>
+    <string name="hello_blank_fragment"> </string>
+    <string name="title_activity_dashboard">Dashboard</string>
+</resources>

@@ -1,9 +1,6 @@
 package com.example.expensemanager.budget
 
-import android.app.Activity
 import android.content.Context
-import android.content.pm.PackageManager
-
 import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,7 +29,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-
 import com.example.expensemanager.NotificationReceiver
 import com.example.expensemanager.R
 import com.google.firebase.auth.FirebaseAuth
@@ -43,67 +39,74 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
+import com.example.expensemanager.format
+import com.example.expensemanager.parseAmount
+fun scheduleTransaction(context: Context, name: String, amount: Double, date: LocalDate) {
+    val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
+    val docRef = FirebaseFirestore.getInstance()
+        .collection("users").document(userId)
+        .collection("scheduled_transactions").document()
 
-fun saveScheduledTransaction(context: Context, transactionName: String, amount: Double, date: LocalDate) {
-    val firestore = FirebaseFirestore.getInstance()
-    val userId = FirebaseAuth.getInstance().currentUser!!.uid
-    val scheduledTransactionsRef = firestore.collection("users").document(userId).collection("scheduled_transactions")
+    // Alarm first: if exact alarms are not allowed, nothing is saved
+    if (!futureNotification(context, name, amount.format(), date, docRef.id.hashCode())) return
 
-
-    val transactionData = hashMapOf(
-        "transactionName" to transactionName,
-        "amount" to amount,
-        "date" to date.toString()
-    )
-
-    scheduledTransactionsRef.add(transactionData)
-        .addOnSuccessListener {
-            Toast.makeText(context, "Transaction scheduled successfully", Toast.LENGTH_SHORT).show()
-        }
-        .addOnFailureListener { e ->
-            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-        }
+    docRef.set(
+        hashMapOf(
+            "transactionName" to name,
+            "amount" to amount,
+            "date" to date.toString()
+        )
+    ).addOnSuccessListener {
+        Toast.makeText(context, "Transaction scheduled successfully", Toast.LENGTH_SHORT).show()
+    }.addOnFailureListener { e ->
+        cancelScheduledAlarm(context, docRef.id)
+        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+    }
 }
 
-
-
-fun futureNotification(context: Context, transactionName: String, amount: String, date: LocalDate) {
+// Returns true if the alarm was set
+fun futureNotification(context: Context, name: String, amount: String, date: LocalDate, requestCode: Int): Boolean {
     val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+        Toast.makeText(context, "Allow exact alarms for FINO, then tap Schedule again", Toast.LENGTH_LONG).show()
+        requestExactAlarmPermission(context)
+        return false
+    }
+
     val intent = Intent(context, NotificationReceiver::class.java).apply {
-        putExtra("transactionName", transactionName)
+        putExtra("transactionName", name)
         putExtra("amount", amount)
+        putExtra("notificationId", requestCode)
     }
-
-    val calendar = java.util.Calendar.getInstance().apply {
-        set(date.year, date.monthValue - 1, date.dayOfMonth, 9, 0) // Set to 9 AM, adjust as needed
-        if (timeInMillis < System.currentTimeMillis()) {
-            add(java.util.Calendar.DAY_OF_MONTH, 1)
-        }
-    }
-
     val pendingIntent = PendingIntent.getBroadcast(
-        context,
-        1001, // Unique request code
-        intent,
+        context, requestCode, intent,
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 
-
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
-        requestExactAlarmPermission(context) // Request permission if not granted
-        return
+    val calendar = java.util.Calendar.getInstance().apply {
+        set(date.year, date.monthValue - 1, date.dayOfMonth, 9, 0, 0)
+        if (timeInMillis < System.currentTimeMillis()) add(java.util.Calendar.DAY_OF_MONTH, 1)
     }
 
-    try {
-        // Schedule the notification
-        alarmManager.setExact(
-            AlarmManager.RTC_WAKEUP,
-            calendar.timeInMillis,
-            pendingIntent
-        )
-        Toast.makeText(context, "Notification scheduled for $transactionName", Toast.LENGTH_SHORT).show()
+    return try {
+        alarmManager.setExact(AlarmManager.RTC_WAKEUP, calendar.timeInMillis, pendingIntent)
+        true
     } catch (e: SecurityException) {
-        Toast.makeText(context, "Failed to schedule notification: ${e.message}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Failed to schedule reminder: ${e.message}", Toast.LENGTH_SHORT).show()
+        false
+    }
+}
+
+fun cancelScheduledAlarm(context: Context, docId: String) {
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    val pi = PendingIntent.getBroadcast(
+        context, docId.hashCode(), Intent(context, NotificationReceiver::class.java),
+        PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+    )
+    if (pi != null) {
+        alarmManager.cancel(pi)
+        pi.cancel()
     }
 }
 
@@ -149,7 +152,7 @@ fun ScheduleTransactionScreen(onNavigate: () -> Unit) {
             value = amount,
             onValueChange = { amount = it },
             label = { Text("Enter Amount") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -176,26 +179,15 @@ fun ScheduleTransactionScreen(onNavigate: () -> Unit) {
         Spacer(modifier = Modifier.height(16.dp))
 
         Button(onClick = {
-            if (transactionName.isNotEmpty() && amount.isNotEmpty()) {
-                // Check if we need the permission to set exact alarms
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    // Check if the permission is granted
-                    if (context.checkSelfPermission(android.Manifest.permission.SCHEDULE_EXACT_ALARM) != PackageManager.PERMISSION_GRANTED) {
-                        requestExactAlarmPermission(context) // Request permission
-                    } else {
-                        // Schedule the notification
-                        futureNotification(context, transactionName, amount, selectedDate)
-                        saveScheduledTransaction(context, transactionName, amount.toDouble(), selectedDate)
-                    }
-                } else {
-                    // Schedule the notification for pre-Android 12 versions
-                    futureNotification(context, transactionName, amount, selectedDate)
-                    saveScheduledTransaction(context, transactionName, amount.toDouble(), selectedDate)
-                }
-            } else {
-                Toast.makeText(context, "Please fill all fields", Toast.LENGTH_SHORT).show()
+            val amountValue = parseAmount(amount)
+            when {
+                transactionName.isBlank() || amountValue == null ->
+                    Toast.makeText(context, "Enter a name and an amount greater than 0", Toast.LENGTH_SHORT).show()
+                selectedDate.isBefore(LocalDate.now()) ->
+                    Toast.makeText(context, "Pick today or a future date", Toast.LENGTH_SHORT).show()
+                else -> scheduleTransaction(context, transactionName.trim(), amountValue, selectedDate)
             }
-        }) {
+        })  {
             Text(text = "Schedule Transaction")
         }
 
@@ -238,7 +230,7 @@ fun ViewScheduledTransactionsScreen(onNavigateBack: () -> Unit) {
 
         transactions.forEach { transaction ->
             Row(modifier = Modifier.fillMaxWidth()) {
-                Text(text = "${transaction.transactionName} - $${transaction.amount} on ${transaction.date.format(DateTimeFormatter.ofPattern("dd-MM-yyyy"))}")
+                Text(text = "${transaction.transactionName} - ${transaction.amount.format()} on ${transaction.date.format(DateTimeFormatter.ofPattern("dd-MM-yyyy"))}")
                 Spacer(modifier = Modifier.weight(1f))
 
                 // Update button
@@ -249,9 +241,11 @@ fun ViewScheduledTransactionsScreen(onNavigateBack: () -> Unit) {
                 }
 
                 // Delete button
+
                 IconButton(onClick = {
-                    // Implement delete logic
+                    cancelScheduledAlarm(context, transaction.id)
                     scheduledTransactionsRef.document(transaction.id).delete()
+                    transactions = transactions.filter { it.id != transaction.id }
                 }) {
                     Icon(painter = painterResource(id = R.drawable.bin), contentDescription = "Delete")
                 }

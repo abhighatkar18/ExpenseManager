@@ -24,7 +24,10 @@ class NotificationReceiver : BroadcastReceiver() {
 
             // Use a try-catch block to handle potential SecurityException
             try {
-                NotificationManagerCompat.from(context).notify(1001, notificationBuilder.build())
+                NotificationManagerCompat.from(context).notify(
+                    intent.getIntExtra("notificationId", 1001),
+                    notificationBuilder.build()
+                )
             } catch (e: SecurityException) {
                 // Handle the exception (e.g., log it or show a message to the user)
                 e.printStackTrace() // Replace this with your logging mechanism

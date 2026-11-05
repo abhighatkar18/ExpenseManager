@@ -1,0 +1,43 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function validTransaction() {
+      let d = request.resource.data;
+      return d.type in ['Income', 'Expense']
+          && d.amount is number && d.amount > 0
+          && d.name is string && d.name.size() > 0 && d.name.size() <= 100;
+    }
+
+    function validTotals() {
+      let d = request.resource.data;
+      return d.totalBalance is number
+          && d.totalIncome is number
+          && d.totalExpense is number;
+    }
+
+    match /users/{uid} {
+      allow read, create, update: if isOwner(uid);
+      allow delete: if false;
+
+      match /transactions/{id} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid) && validTransaction();
+      }
+
+      match /totals/{id} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid) && validTotals();
+      }
+
+      // limits, goals, scheduled_transactions
+      match /{sub}/{id} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+  }
+}

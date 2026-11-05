@@ -13,9 +13,7 @@
 .externalNativeBuild
 .cxx
 local.properties
-
-# API key - never upload
-/app/src/main/java/com/example/expensemanager/Constants.kt
+.idea/
 
 # Firebase configuration
 **/google-services.json

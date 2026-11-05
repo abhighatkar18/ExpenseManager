@@ -39,7 +39,7 @@ fun ExpenseIncomeForm(
     var date by remember { mutableStateOf("") }
     var category by remember { mutableStateOf<String?>(null) }
     var receiptUri by remember { mutableStateOf<Uri?>(null) }
-
+    var amountError by remember { mutableStateOf(false) }
     val calendar = Calendar.getInstance()
     val year = calendar.get(Calendar.YEAR)
     val month = calendar.get(Calendar.MONTH)
@@ -98,9 +98,11 @@ fun ExpenseIncomeForm(
                 // Amount
                 OutlinedTextField(
                     value = amount,
-                    onValueChange = { amount = it },
+                    onValueChange = { amount = it; amountError = false },
                     label = { Text("Amount") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    isError = amountError,
+                    supportingText = { if (amountError) Text("Enter an amount greater than 0 (max 2 decimals)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -181,8 +183,12 @@ fun ExpenseIncomeForm(
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(onClick = {
-                        if (name.isNotBlank() && amount.isNotBlank() && (selectedType == "Income" || category != null) && date.isNotBlank()) {
-                            onSave(selectedType, name, amount.toDouble(), description, date, category, receiptUri)
+                        val parsedAmount = parseAmount(amount)
+                        amountError = parsedAmount == null
+                        if (parsedAmount != null && name.isNotBlank() &&
+                            (selectedType == "Income" || category != null) && date.isNotBlank()
+                        ) {
+                            onSave(selectedType, name, parsedAmount, description, date, category, receiptUri)
                             onDismiss()
                         } else {
                             Toast.makeText(context, "Please fill in the required fields", Toast.LENGTH_SHORT).show()
@@ -239,4 +245,12 @@ fun SegmentedControl(
             }
         }
     }
+}
+private val AMOUNT_REGEX = Regex("""^\d{1,9}(\.\d{1,2})?$""")
+
+// Positive number, max 2 decimals; otherwise null
+internal fun parseAmount(input: String): Double? {
+    val text = input.trim()
+    if (!AMOUNT_REGEX.matches(text)) return null
+    return text.toDouble().takeIf { it > 0.0 }
 }

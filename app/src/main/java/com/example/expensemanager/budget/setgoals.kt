@@ -25,13 +25,16 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.*
 import java.util.concurrent.TimeUnit
-
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.work.ExistingPeriodicWorkPolicy
+import com.example.expensemanager.parseAmount
 @Composable
 fun SetGoalsScreenWithProgress(userId: String, db: FirebaseFirestore) {
     var itemName by remember { mutableStateOf("") }
     var goalAmount by remember { mutableStateOf("") }
     var targetDate by remember { mutableStateOf(LocalDate.now()) }
-    var showDatePicker by remember { mutableStateOf(false) }
+
     var progress by remember { mutableStateOf(0f) }
     var monthlySavings by remember { mutableStateOf("") }
     var suggestedMonths by remember { mutableStateOf(0) }
@@ -64,16 +67,18 @@ fun SetGoalsScreenWithProgress(userId: String, db: FirebaseFirestore) {
             value = goalAmount,
             onValueChange = { goalAmount = it },
             label = { Text("Enter Goal Amount") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.fillMaxWidth()
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Monthly Savings Input
+// Monthly Savings Input
         TextField(
             value = monthlySavings,
             onValueChange = { monthlySavings = it },
             label = { Text("Enter Monthly Savings") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -95,26 +100,23 @@ fun SetGoalsScreenWithProgress(userId: String, db: FirebaseFirestore) {
             style = MaterialTheme.typography.bodyLarge,
             color = green
         )
-        Button(onClick = { showDatePicker = true }) {
-            Text("Pick a Date")
-        }
-        if (showDatePicker) {
-            val calendar = Calendar.getInstance()
+        Button(onClick = {
             DatePickerDialog(
                 context,
                 { _, year, month, day ->
                     targetDate = LocalDate.of(year, month + 1, day)
-                    showDatePicker = false
                 },
-                calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)
+                targetDate.year, targetDate.monthValue - 1, targetDate.dayOfMonth
             ).show()
+        }) {
+            Text("Pick a Date")
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-
-        // Suggest how many months to complete the goal
-        if (goalAmount.isNotEmpty() && monthlySavings.isNotEmpty()) {
-            suggestedMonths = calculateMonthsToCompleteGoal(goalAmount.toDouble(), monthlySavings.toDouble())
+        val goalValue = parseAmount(goalAmount)
+        val savingsValue = parseAmount(monthlySavings)
+        if (goalValue != null && savingsValue != null) {
+            suggestedMonths = calculateMonthsToCompleteGoal(goalValue, savingsValue)
             Text(
                 text = "You need $suggestedMonths months to complete this goal.",
                 style = MaterialTheme.typography.bodyLarge,
@@ -127,7 +129,11 @@ fun SetGoalsScreenWithProgress(userId: String, db: FirebaseFirestore) {
         // Save Goal Button
         Button(
             onClick = {
-                saveGoalWithSuggestion(context, userId, db, itemName, goalAmount, targetDate, progress, monthlySavings)
+                if (itemName.isBlank() || parseAmount(goalAmount) == null || parseAmount(monthlySavings) == null) {
+                    Toast.makeText(context, "Enter an item name and amounts greater than 0", Toast.LENGTH_SHORT).show()
+                } else {
+                    saveGoalWithSuggestion(context, userId, db, itemName.trim(), goalAmount, targetDate, progress, monthlySavings)
+                }
             },
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -185,11 +191,13 @@ fun saveGoalWithSuggestion(
 }
 
 fun scheduleMonthlyReminder(context: Context, userId: String) {
-    // Schedule a periodic monthly reminder
     val monthlyWorkRequest = PeriodicWorkRequestBuilder<ReminderWorker>(30, TimeUnit.DAYS).build()
-    WorkManager.getInstance(context).enqueue(monthlyWorkRequest)
+    WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+        "goal_monthly_reminder",
+        ExistingPeriodicWorkPolicy.KEEP,
+        monthlyWorkRequest
+    )
 }
-
 @Composable
 fun ViewGoalsScreen(userId: String, db: FirebaseFirestore) {
     val context = LocalContext.current

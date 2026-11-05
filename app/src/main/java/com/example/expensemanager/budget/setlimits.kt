@@ -23,7 +23,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-
+import com.example.expensemanager.EXPENSE_CATEGORIES
 data class Limit(val category: String, val amount: Double, val type: String)
 
 @Composable
@@ -34,7 +34,7 @@ fun SetLimitsScreen() {
     var limitType by remember { mutableStateOf("Daily") }
     var limitsList by remember { mutableStateOf<List<Limit>>(emptyList()) }
     var selectedLimit by remember { mutableStateOf<Limit?>(null) }
-    val categories = listOf("Food","Housing", "Entertainment","Transportation", "Investment", "Bills","Healthcare", "Subscription", "Other")
+    val categories = EXPENSE_CATEGORIES
     val notificationChannelId = "limit_exceeded_channel"
     val scope = rememberCoroutineScope()
     // Create Notification Channel

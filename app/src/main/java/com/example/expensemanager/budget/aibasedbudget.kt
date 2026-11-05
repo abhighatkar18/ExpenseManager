@@ -17,8 +17,8 @@ import kotlinx.coroutines.tasks.await
 import org.tensorflow.lite.Interpreter
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-
-
+import com.example.expensemanager.EXPENSE_CATEGORIES
+import com.example.expensemanager.parseAmount
 @Composable
 fun AIBasedBudgetScreen(userId: String, db: FirebaseFirestore, onBudgetSet: () -> Unit) {
     var salary by remember { mutableStateOf("") }
@@ -90,9 +90,14 @@ fun AIBasedBudgetScreen(userId: String, db: FirebaseFirestore, onBudgetSet: () -
             Spacer(modifier = Modifier.height(20.dp))
 
             Button(onClick = {
-                generateAIBasedBudget(userId, salary.toDouble(), context,FirebaseFirestore.getInstance()) { budget ->
-                    categoryBudget = budget
-                    budgetGenerated = true
+                val salaryValue = parseAmount(salary)
+                if (salaryValue == null) {
+                    Toast.makeText(context, "Enter a valid salary", Toast.LENGTH_SHORT).show()
+                } else {
+                    generateAIBasedBudget(userId, salaryValue, context, FirebaseFirestore.getInstance()) { budget ->
+                        categoryBudget = budget
+                        budgetGenerated = true
+                    }
                 }
             }) {
                 Text("Generate Budget")
@@ -112,7 +117,7 @@ fun AIBasedBudgetScreen(userId: String, db: FirebaseFirestore, onBudgetSet: () -
 
                 Button(onClick = {
                     categoryBudget!!.forEach { (category, amount) ->
-                        saveAiLimit(context, category, amount, "monthly", userId)
+                        saveAiLimit(context, category, amount, "Monthly", userId)
                     }
                     onBudgetSet() // Call the callback after budget is set
                 }) {
@@ -154,9 +159,9 @@ fun generateAIBasedBudget(
                 val type = document.getString("type") ?: continue
                 val amount = document.getDouble("amount") ?: continue
 
-                if (type == "income") {
+                if (type == "Income") {
                     income.add(amount)
-                } else if (type == "expense") {
+                } else if (type == "Expense") {
                     expenses.add(amount)
                 }
             }
@@ -170,11 +175,12 @@ fun generateAIBasedBudget(
 
             // Run TensorFlow Lite model for budget prediction
             val predictedBudget = runModelInference(context, inputTensor)
+            if (predictedBudget == null) {
+                Toast.makeText(context, "Could not generate budget. Please try again.", Toast.LENGTH_LONG).show()
+                return@addOnSuccessListener
+            }
 
-            // Post-process TensorFlow Lite output into categories
             val budget = postProcessOutput(predictedBudget)
-
-            // Pass the predicted budget to the callback
             onBudgetGenerated(budget)
         }
         .addOnFailureListener { e ->
@@ -207,26 +213,19 @@ fun loadModelFile(context: Context, modelFileName: String): ByteBuffer {
 }
 
 // Update runModelInference to accept Context
-fun runModelInference(context: Context, inputBuffer: ByteBuffer): FloatArray {
+fun runModelInference(context: Context, inputBuffer: ByteBuffer): FloatArray? {
+    var interpreter: Interpreter? = null
     return try {
-        // Load the TensorFlow Lite model using the context
         val tfliteModel = loadModelFile(context, "budget.tflite")
-
-        // Allocate output buffer (assuming 9 categories)
-        val outputBuffer = Array(1) { FloatArray(9) } // 1 output, 9 categories
-
-        // Initialize TensorFlow Lite interpreter
-        val tfliteInterpreter = Interpreter(tfliteModel)
-
-        // Run the inference
-        tfliteInterpreter.run(inputBuffer, outputBuffer)
-
-        // Return the output (budget for each category)
+        val outputBuffer = Array(1) { FloatArray(9) }
+        interpreter = Interpreter(tfliteModel)
+        interpreter.run(inputBuffer, outputBuffer)
         outputBuffer[0]
     } catch (e: Exception) {
-        // Log the exception (or handle it accordingly)
-        e.printStackTrace()
-        FloatArray(9) // Return an array of zeros or handle error appropriately
+        android.util.Log.e("AIBudget", "Model inference failed", e)
+        null
+    } finally {
+        interpreter?.close()
     }
 }
 
@@ -235,14 +234,7 @@ fun runModelInference(context: Context, inputBuffer: ByteBuffer): FloatArray {
 
 // Post-process the model's output into meaningful categories
 fun postProcessOutput(outputArray: FloatArray): Map<String, Double> {
-    // These are your specified categories
-    val categories = listOf(
-        "housing", "food", "entertainment", "transportation", "investment",
-        "healthcare", "bills", "subscription", "others"
-    )
-
-    // Pair categories with predicted values
-    return categories.zip(outputArray.map { it.toDouble() }).toMap()
+    return EXPENSE_CATEGORIES.zip(outputArray.map { it.toDouble() }).toMap()
 }
 fun saveAiLimit(context: Context, category: String, amount: Double, type: String, userId: String) {
     val firestore = FirebaseFirestore.getInstance()

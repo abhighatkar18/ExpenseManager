@@ -254,3 +254,8 @@ internal fun parseAmount(input: String): Double? {
     if (!AMOUNT_REGEX.matches(text)) return null
     return text.toDouble().takeIf { it > 0.0 }
 }
+// Single source of truth for expense categories (order matches the AI model output)
+val EXPENSE_CATEGORIES = listOf(
+    "Housing", "Food", "Entertainment", "Transportation", "Investment",
+    "Healthcare", "Bills", "Subscription", "Others"
+)

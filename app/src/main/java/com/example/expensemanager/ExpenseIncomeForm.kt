@@ -48,7 +48,7 @@ fun ExpenseIncomeForm(
     val datePickerDialog = DatePickerDialog(
         LocalContext.current,
         { _, selectedYear, selectedMonth, selectedDayOfMonth ->
-            date = "$selectedDayOfMonth/${selectedMonth + 1}/$selectedYear"
+            date = "%04d-%02d-%02d".format(selectedYear, selectedMonth + 1, selectedDayOfMonth)
         },
         year, month, day
     )

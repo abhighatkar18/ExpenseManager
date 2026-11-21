@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">ExMan</string>
+    <string name="app_name">Exman</string>
     <string name="title_activity_home_page">homePage</string>
     <string name="title_home">Home</string>
     <string name="title_chatbot">Chatbot</string>

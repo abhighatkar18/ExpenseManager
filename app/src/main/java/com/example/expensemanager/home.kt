@@ -26,10 +26,12 @@ import com.google.firebase.firestore.FirebaseFirestore
 import androidx.compose.foundation.lazy.items
 import androidx.core.app.NotificationCompat
 import com.github.mikephil.charting.data.PieEntry
+import java.time.LocalDate
 
 @Preview(showBackground = true)
 @Composable
 fun HomeScreenContent() {
+    var monthTransactions by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     val context = LocalContext.current
     var totalBalance by remember { mutableStateOf(0.0) }
     var totalIncome by remember { mutableStateOf(0.0) }
@@ -37,8 +39,9 @@ fun HomeScreenContent() {
     var transactions by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var showForm by remember { mutableStateOf(false) }
     var showAllTransactions by remember { mutableStateOf(false) }
+    var refreshKey by remember { mutableStateOf(0) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(refreshKey) {
         val firestore = FirebaseFirestore.getInstance()
         val userId = FirebaseAuth.getInstance().currentUser!!.uid
 
@@ -59,7 +62,7 @@ fun HomeScreenContent() {
                 Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
             }
 
-        // Fetch latest transactions
+        // FIX: latest 5 transactions for "Recent Transactions" (this block had been deleted)
         firestore.collection("users")
             .document(userId)
             .collection("transactions")
@@ -72,6 +75,21 @@ fun HomeScreenContent() {
             .addOnFailureListener { e ->
                 Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
             }
+
+        // Fetch this month's transactions for the pie chart
+        val monthStart = LocalDate.now().withDayOfMonth(1)
+        firestore.collection("users")
+            .document(userId)
+            .collection("transactions")
+            .whereGreaterThanOrEqualTo("date", monthStart.toString())
+            .whereLessThan("date", monthStart.plusMonths(1).toString())
+            .get()
+            .addOnSuccessListener { result ->
+                monthTransactions = result.map { it.data }
+            }
+            .addOnFailureListener { e ->
+                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+            }
     }
 
     HomeScreen(
@@ -79,10 +97,12 @@ fun HomeScreenContent() {
         totalIncome = totalIncome,
         totalExpense = totalExpense,
         transactions = transactions,
+        pieTransactions = monthTransactions,
         showForm = showForm,
         showAllTransactions = showAllTransactions,
         onShowFormChange = { showForm = it },
-        onShowAllTransactionsChange = { showAllTransactions = it }
+        onShowAllTransactionsChange = { showAllTransactions = it },
+        onTransactionSaved = { refreshKey++ }
     )
 }
 
@@ -92,16 +112,19 @@ fun HomeScreen(
     totalIncome: Double,
     totalExpense: Double,
     transactions: List<Map<String, Any>>,
+    pieTransactions: List<Map<String, Any>>,
     showForm: Boolean,
     showAllTransactions: Boolean,
     onShowFormChange: (Boolean) -> Unit,
-    onShowAllTransactionsChange: (Boolean) -> Unit
+    onShowAllTransactionsChange: (Boolean) -> Unit,
+    onTransactionSaved: () -> Unit
 ) {
     val context = LocalContext.current
     var allTransactions by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var pieChartData by remember { mutableStateOf<List<PieEntry>>(emptyList()) }
-    // Update pieChartData whenever transactions change
-    pieChartData = createPieEntries(transactions)
+    // Update pieChartData whenever the month's transactions change
+    pieChartData = createPieEntries(pieTransactions)
+
     LaunchedEffect(showAllTransactions) {
         if (showAllTransactions) {
             val firestore = FirebaseFirestore.getInstance()
@@ -109,6 +132,7 @@ fun HomeScreen(
             firestore.collection("users")
                 .document(userId)
                 .collection("transactions")
+                // FIX: removed .limit(5) so "See all" really shows everything
                 .orderBy("date", com.google.firebase.firestore.Query.Direction.DESCENDING)
                 .get()
                 .addOnSuccessListener { result ->
@@ -119,6 +143,7 @@ fun HomeScreen(
                 }
         }
     }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             Column(
@@ -199,12 +224,12 @@ fun HomeScreen(
                         modifier = Modifier.padding(start = 20.dp)
                     )
                     Spacer(modifier = Modifier.width(90.dp))
-                    Text(text = "See all", fontSize = 20.sp,modifier = Modifier.clickable { onShowAllTransactionsChange(true) })
+                    Text(text = "See all", fontSize = 20.sp, modifier = Modifier.clickable { onShowAllTransactionsChange(true) })
                 }
             }
             LazyColumn(
                 modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(vertical = 8.dp)
+                contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp)
             ) {
                 items(if (showAllTransactions) allTransactions else transactions) { transaction ->
                     TransactionItem(transaction)
@@ -212,7 +237,6 @@ fun HomeScreen(
                 }
             }
         }
-
 
         Button(
             onClick = { onShowFormChange(true) },
@@ -226,61 +250,63 @@ fun HomeScreen(
         }
     }
 
-        if (showForm) {
-            ExpenseIncomeForm(
-                onDismiss = { onShowFormChange(false) },
-                onSave = { type, name, amount, description, date, category, receiptUri ->
-                    val firestore = FirebaseFirestore.getInstance()
-                    val userId = FirebaseAuth.getInstance().currentUser?.uid
+    if (showForm) {
+        ExpenseIncomeForm(
+            onDismiss = { onShowFormChange(false) },
+            onSave = { type, name, amount, description, date, category, receiptUri ->
+                val firestore = FirebaseFirestore.getInstance()
+                val userId = FirebaseAuth.getInstance().currentUser?.uid
 
-                    if (userId == null) {
-                        Toast.makeText(context, "Please log in again", Toast.LENGTH_LONG).show()
-                    } else {
-                        val userRef = firestore.collection("users").document(userId)
-                        val transactionRef = userRef.collection("transactions").document()
-                        val totalsRef = userRef.collection("totals").document("totalsDoc")
-                        val isIncome = type == "Income"
+                if (userId == null) {
+                    Toast.makeText(context, "Please log in again", Toast.LENGTH_LONG).show()
+                } else {
+                    val userRef = firestore.collection("users").document(userId)
+                    val transactionRef = userRef.collection("transactions").document()
+                    val totalsRef = userRef.collection("totals").document("totalsDoc")
+                    val isIncome = type == "Income"
 
-                        val transactionData = hashMapOf(
-                            "type" to type,
-                            "name" to name,
-                            "amount" to amount,
-                            "description" to description,
-                            "date" to date,
-                            "category" to category,
-                            "receiptUri" to receiptUri?.toString()
-                        )
-                        val totalsChange = hashMapOf<String, Any>(
-                            "totalBalance" to FieldValue.increment(if (isIncome) amount else -amount),
-                            "totalIncome" to FieldValue.increment(if (isIncome) amount else 0.0),
-                            "totalExpense" to FieldValue.increment(if (isIncome) 0.0 else amount)
-                        )
+                    val transactionData = hashMapOf(
+                        "type" to type,
+                        "name" to name,
+                        "amount" to amount,
+                        "description" to description,
+                        "date" to date,
+                        "category" to category,
+                        "receiptUri" to receiptUri?.toString()
+                    )
+                    val totalsChange = hashMapOf<String, Any>(
+                        "totalBalance" to FieldValue.increment(if (isIncome) amount else -amount),
+                        "totalIncome" to FieldValue.increment(if (isIncome) amount else 0.0),
+                        "totalExpense" to FieldValue.increment(if (isIncome) 0.0 else amount)
+                    )
 
-                        firestore.batch()
-                            .set(transactionRef, transactionData)
-                            .set(totalsRef, totalsChange, SetOptions.merge())
-                            .commit()
-                            .addOnSuccessListener {
-                                if (!isIncome && category != null) {
-                                    // the new expense is already saved, so it is counted by the query
-                                    checkLimitExceeded(context, category, 0.0)
-                                }
-                                Toast.makeText(context, "Saved successfully", Toast.LENGTH_LONG).show()
+                    firestore.batch()
+                        .set(transactionRef, transactionData)
+                        .set(totalsRef, totalsChange, SetOptions.merge())
+                        .commit()
+                        .addOnSuccessListener {
+                            onTransactionSaved()
+                            if (!isIncome && category != null) {
+                                // the new expense is already saved, so the query counts it
+                                checkLimitExceeded(context, category, 0.0)
                             }
-                            .addOnFailureListener { e ->
-                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                            }
-                    }
-
-                    onShowFormChange(false)
+                            Toast.makeText(context, "Saved successfully", Toast.LENGTH_LONG).show()
+                        }
+                        .addOnFailureListener { e ->
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                        }
                 }
-            )
-        }
+
+                onShowFormChange(false)
+            }
+        )
     }
+}
 
 fun Double.format(): String {
     return String.format("%.2f", this)
 }
+
 @Composable
 fun TransactionItem(transaction: Map<String, Any>) {
     Row(
@@ -331,16 +357,15 @@ fun TransactionItem(transaction: Map<String, Any>) {
 private fun createPieEntries(transactions: List<Map<String, Any>>): List<PieEntry> {
     val categoryMap = mutableMapOf<String, Double>()
     for (transaction in transactions) {
-
         if (transaction["type"] == "Expense") {
             val category = transaction["category"] as? String ?: "Other"
             val amount = (transaction["amount"] as? Number)?.toDouble() ?: 0.0
-
             categoryMap[category] = categoryMap.getOrDefault(category, 0.0) + amount
         }
     }
     return categoryMap.map { PieEntry(it.value.toFloat(), it.key) }
 }
+
 fun checkLimitExceeded(context: Context, category: String, newExpenseAmount: Double) {
     val firebaseAuth = FirebaseAuth.getInstance()
     val userId = firebaseAuth.currentUser?.uid ?: return
@@ -353,14 +378,13 @@ fun checkLimitExceeded(context: Context, category: String, newExpenseAmount: Dou
         .whereEqualTo("category", category)
         .get()
         .addOnSuccessListener { documents ->
-            var totalSpentInCategory = newExpenseAmount // Include the new expense
+            var totalSpentInCategory = newExpenseAmount
             for (document in documents) {
                 val amount = (document.get("amount") as? Number)?.toDouble() ?: 0.0
                 if (document.getString("type") == "Expense") {
                     totalSpentInCategory += amount
                 }
             }
-            // Now check against the user's set limit
             checkCategoryLimit(context, category, totalSpentInCategory)
         }
         .addOnFailureListener { e ->
@@ -368,7 +392,6 @@ fun checkLimitExceeded(context: Context, category: String, newExpenseAmount: Dou
         }
 }
 
-// New function to check against the limit
 private fun checkCategoryLimit(context: Context, category: String, totalSpent: Double) {
     val firebaseAuth = FirebaseAuth.getInstance()
     val userId = firebaseAuth.currentUser?.uid ?: return
@@ -383,7 +406,6 @@ private fun checkCategoryLimit(context: Context, category: String, totalSpent: D
         .addOnSuccessListener { documents ->
             for (document in documents) {
                 val limitAmount = document.getDouble("amount") ?: 0.0
-                // Check if the total spent exceeds the limit
                 if (totalSpent > limitAmount) {
                     sendNotification(context, category, limitAmount, totalSpent)
                 }

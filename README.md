@@ -1,4 +1,4 @@
-# FINO – Expense Manager (Android)
+# EXMAN – Expense Manager (Android)
 
 Android expense tracker built with Kotlin, Jetpack Compose and Firebase.
 

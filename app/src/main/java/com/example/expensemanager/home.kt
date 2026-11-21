@@ -1,5 +1,6 @@
 package com.example.expensemanager
-
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.SetOptions
 import android.app.NotificationManager
 import android.content.Context
 import android.widget.Toast
@@ -229,67 +230,47 @@ fun HomeScreen(
             ExpenseIncomeForm(
                 onDismiss = { onShowFormChange(false) },
                 onSave = { type, name, amount, description, date, category, receiptUri ->
-                    val expenseIncomeData = hashMapOf(
-                        "type" to type,
-                        "name" to name,
-                        "amount" to amount,
-                        "description" to description,
-                        "date" to date,
-                        "category" to category,
-                        "receiptUri" to receiptUri?.toString()
-                    )
                     val firestore = FirebaseFirestore.getInstance()
-                    val userId = FirebaseAuth.getInstance().currentUser!!.uid
-                    firestore.collection("users")
-                        .document(userId)
-                        .collection("transactions")
-                        .add(expenseIncomeData)
-                        .addOnSuccessListener {
-                            firestore.collection("users")
-                                .document(userId)
-                                .collection("totals")
-                                .document("totalsDoc")
-                                .get()
-                                .addOnSuccessListener { document ->
-                                    if (document != null) {
-                                        var totalBalance = document.getDouble("totalBalance") ?: 0.0
-                                        var totalIncome = document.getDouble("totalIncome") ?: 0.0
-                                        var totalExpense = document.getDouble("totalExpense") ?: 0.0
-                                        if (type == "Income") {
-                                            totalIncome += amount.toDouble()
-                                            totalBalance += amount.toDouble()
-                                        } else if (type == "Expense") {
-                                            totalExpense += amount.toDouble()
-                                            totalBalance -= amount.toDouble()
-                                            checkLimitExceeded(context,category!!,amount)
-                                        }
-                                        val updatedTotals = hashMapOf(
-                                            "totalBalance" to totalBalance,
-                                            "totalIncome" to totalIncome,
-                                            "totalExpense" to totalExpense
-                                        )
+                    val userId = FirebaseAuth.getInstance().currentUser?.uid
 
-                                        firestore.collection("users")
-                                            .document(userId)
-                                            .collection("totals")
-                                            .document("totalsDoc")
-                                            .set(updatedTotals)
-                                            .addOnSuccessListener {
-                                                Toast.makeText(context, "Saved successfully", Toast.LENGTH_LONG).show()
-                                            }
-                                            .addOnFailureListener { e ->
-                                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                                            }
+                    if (userId == null) {
+                        Toast.makeText(context, "Please log in again", Toast.LENGTH_LONG).show()
+                    } else {
+                        val userRef = firestore.collection("users").document(userId)
+                        val transactionRef = userRef.collection("transactions").document()
+                        val totalsRef = userRef.collection("totals").document("totalsDoc")
+                        val isIncome = type == "Income"
 
-                                    }
+                        val transactionData = hashMapOf(
+                            "type" to type,
+                            "name" to name,
+                            "amount" to amount,
+                            "description" to description,
+                            "date" to date,
+                            "category" to category,
+                            "receiptUri" to receiptUri?.toString()
+                        )
+                        val totalsChange = hashMapOf<String, Any>(
+                            "totalBalance" to FieldValue.increment(if (isIncome) amount else -amount),
+                            "totalIncome" to FieldValue.increment(if (isIncome) amount else 0.0),
+                            "totalExpense" to FieldValue.increment(if (isIncome) 0.0 else amount)
+                        )
 
-
+                        firestore.batch()
+                            .set(transactionRef, transactionData)
+                            .set(totalsRef, totalsChange, SetOptions.merge())
+                            .commit()
+                            .addOnSuccessListener {
+                                if (!isIncome && category != null) {
+                                    // the new expense is already saved, so it is counted by the query
+                                    checkLimitExceeded(context, category, 0.0)
                                 }
-
-                        }
-                        .addOnFailureListener { e ->
-                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                        }
+                                Toast.makeText(context, "Saved successfully", Toast.LENGTH_LONG).show()
+                            }
+                            .addOnFailureListener { e ->
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                    }
 
                     onShowFormChange(false)
                 }

@@ -67,8 +67,10 @@ fun AIBasedBudgetScreen(userId: String, db: FirebaseFirestore, onBudgetSet: () -
             Spacer(modifier = Modifier.height(16.dp))
 
             Button(onClick = {
-                if (salary.isNotEmpty()) {
-                    saveSalaryToFirebase(userId, salary, db) {
+                if (parseAmount(salary) == null) {
+                    Toast.makeText(context, "Enter a valid salary", Toast.LENGTH_SHORT).show()
+                } else {
+                    saveSalaryToFirebase(userId, salary.trim(), db) {
                         Toast.makeText(context, "Salary saved!", Toast.LENGTH_SHORT).show()
                         showSalaryInput = false
                     }

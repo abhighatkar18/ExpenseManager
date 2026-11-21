@@ -11,7 +11,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.example.expensemanager.databinding.ActivityLoginpageBinding
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-
+import com.google.firebase.firestore.SetOptions
 class loginpage : AppCompatActivity() {
 
     private lateinit var binding: ActivityLoginpageBinding
@@ -101,57 +101,30 @@ class loginpage : AppCompatActivity() {
                     .document(uid)
                     .get()
                     .addOnSuccessListener { document ->
-
-                        logbtn.isEnabled = true
-
                         if (document.exists()) {
-
                             val uname = document.getString("uname")
                                 ?.takeIf { it.isNotBlank() }
                                 ?: email.substringBefore("@")
-
-                            // Save user information
-                            val sharedPreferences =
-                                getSharedPreferences(
-                                    "Credentials",
-                                    MODE_PRIVATE
-                                )
-
-                            sharedPreferences.edit()
-                                .putString("uname", uname)
-                                .putString("uemail", email)
-                                .apply()
-
-                            showMessage("Login successful")
-
-                            // Navigate to Dashboard
-                            val intent = Intent(
-                                this@loginpage,
-                                Dashboard::class.java
-                            )
-
-                            startActivity(intent)
-                            finish()
-
+                            finishLogin(uname, email)
                         } else {
-                            showMessage(
-                                "User profile not found in database"
-                            )
+                            // Profile missing (for example an interrupted signup): recreate it
+                            val uname = email.substringBefore("@")
+                            db.collection("users").document(uid)
+                                .set(hashMapOf("uname" to uname, "email" to email), SetOptions.merge())
+                                .addOnSuccessListener { finishLogin(uname, email) }
+                                .addOnFailureListener { e ->
+                                    logbtn.isEnabled = true
+                                    auth.signOut()
+                                    Log.e("LoginPage", "Profile recreation failed", e)
+                                    showMessage("Unable to set up your profile. Please try again.")
+                                }
                         }
                     }
                     .addOnFailureListener { exception ->
-
                         logbtn.isEnabled = true
-
-                        Log.e(
-                            "LoginPage",
-                            "Firestore error",
-                            exception
-                        )
-
-                        showMessage(
-                            "Unable to load profile. Please try again."
-                        )
+                        auth.signOut()
+                        Log.e("LoginPage", "Firestore error", exception)
+                        showMessage("Unable to load profile. Please try again.")
                     }
             }
             .addOnFailureListener { exception ->
@@ -171,6 +144,18 @@ class loginpage : AppCompatActivity() {
                     }"
                 )
             }
+    }
+    private fun finishLogin(uname: String, email: String) {
+        logbtn.isEnabled = true
+
+        getSharedPreferences("Credentials", MODE_PRIVATE).edit()
+            .putString("uname", uname)
+            .putString("uemail", email)
+            .apply()
+
+        showMessage("Login successful")
+        startActivity(Intent(this, Dashboard::class.java))
+        finish()
     }
 
     // =============================

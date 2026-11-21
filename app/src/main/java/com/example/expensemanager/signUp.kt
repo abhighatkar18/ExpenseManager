@@ -200,19 +200,24 @@ class signUp : AppCompatActivity() {
                 finish()
             }
             .addOnFailureListener { exception ->
+                Log.e("SignUp", "Firestore profile setup failed", exception)
 
-                signinbtn.isEnabled = true
-
-                Log.e(
-                    "SignUp",
-                    "Firestore profile setup failed",
-                    exception
-                )
-
-                showMessage(
-                    "Account created, but profile setup failed. " +
-                            "Please check your connection and Firestore access."
-                )
+                // Roll back the new account so the same email can be used again
+                val user = auth.currentUser
+                if (user == null) {
+                    signinbtn.isEnabled = true
+                    showMessage("Sign-up failed. Please try again.")
+                } else {
+                    user.delete().addOnCompleteListener { task ->
+                        signinbtn.isEnabled = true
+                        if (task.isSuccessful) {
+                            showMessage("Sign-up failed. Please check your connection and try again.")
+                        } else {
+                            auth.signOut()
+                            showMessage("Account created but setup failed. Please log in to finish setup.")
+                        }
+                    }
+                }
             }
     }
 
